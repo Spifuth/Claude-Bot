@@ -154,57 +154,6 @@ class AdminCommands(commands.Cog):
         )
         
         await interaction.response.send_message(embed=embed, ephemeral=True)
-    
-    @app_commands.command(name="reload_cog", description="Reload a specific cog (Admin only)")
-    @app_commands.describe(cog_name="Name of the cog to reload")
-    async def reload_cog(self, interaction: discord.Interaction, cog_name: str):
-        """Reload a specific cog"""
-        
-        # Check if user has administrator permissions
-        if not interaction.user.guild_permissions.administrator:
-            embed = EmbedBuilder.error(
-                "Permission Denied",
-                "You need administrator permissions to use this command."
-            )
-            await interaction.response.send_message(embed=embed, ephemeral=True)
-            return
-        
-        await interaction.response.defer(ephemeral=True)
-        
-        try:
-            # Add 'cogs.' prefix if not present
-            if not cog_name.startswith('cogs.'):
-                cog_name = f'cogs.{cog_name}'
-            
-            # Reload the cog
-            await self.bot.reload_extension(cog_name)
-            
-            embed = EmbedBuilder.success(
-                "Cog Reloaded",
-                f"Successfully reloaded `{cog_name}`"
-            )
-            await interaction.followup.send(embed=embed)
-            
-        except commands.ExtensionNotFound:
-            embed = EmbedBuilder.error(
-                "Cog Not Found",
-                f"Cog `{cog_name}` not found."
-            )
-            await interaction.followup.send(embed=embed)
-            
-        except commands.ExtensionNotLoaded:
-            embed = EmbedBuilder.error(
-                "Cog Not Loaded",
-                f"Cog `{cog_name}` is not currently loaded."
-            )
-            await interaction.followup.send(embed=embed)
-            
-        except Exception as e:
-            embed = EmbedBuilder.error(
-                "Reload Failed",
-                f"Failed to reload `{cog_name}`: {str(e)}"
-            )
-            await interaction.followup.send(embed=embed)
 
 async def setup(bot):
     """Setup function for the cog"""

@@ -23,8 +23,8 @@ class CoreCommands(commands.Cog):
         """Simple ping command"""
         latency = round(self.bot.latency * 1000)
         embed = EmbedBuilder.success(
-            "Fenrir is awake!",
-            f"🏓 Pong! Latency: {latency}ms"
+            "Pong!",
+            f"🏓 Latency: {latency}ms"
         )
         await interaction.response.send_message(embed=embed)
     
@@ -56,7 +56,7 @@ class CoreCommands(commands.Cog):
         await interaction.response.send_message(embed=embed)
     
     @app_commands.command(name="bot_info", description="Get detailed information about Fenrir")
-    async def bot_info(self, interaction: discord.Interaction):
+    async def info_command(self, interaction: discord.Interaction):
         """Get detailed bot information"""
         embed = discord.Embed(
             title="🐺 Fenrir Bot Information",

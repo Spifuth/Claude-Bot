@@ -74,7 +74,6 @@ class FenrirBot(commands.Bot):
         optional_cogs = {
             "cogs.homelab": BotConfig.MODULES_ENABLED.get("homelab", False),
             # Add more optional cogs here
-            # "cogs.music": BotConfig.MODULES_ENABLED.get("music", False),
         }
         
         for cog, enabled in optional_cogs.items():

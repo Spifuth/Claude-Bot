@@ -23,14 +23,13 @@ class BotConfig:
     # Module Configuration
     MODULES_ENABLED = {
         'homelab': os.getenv('ENABLE_HOMELAB', 'false').lower() == 'true',
-        'music': os.getenv('ENABLE_MUSIC', 'false').lower() == 'true',
-        'gaming': os.getenv('ENABLE_GAMING', 'false').lower() == 'true',
         # Add more modules here as you expand
     }
     
     # Bot Settings
     LOG_LEVEL = os.getenv('LOG_LEVEL', 'INFO').upper()
     AUTO_SYNC_COMMANDS = os.getenv('AUTO_SYNC_COMMANDS', 'false').lower() == 'true'
+    AUTO_WATCH_CONFIG = os.getenv('AUTO_WATCH_CONFIG', 'true').lower() == 'true'
     
     # API Settings
     REQUEST_TIMEOUT = int(os.getenv('REQUEST_TIMEOUT', '30'))
