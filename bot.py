@@ -42,6 +42,16 @@ class FenrirBot(commands.Bot):
         logger.info(f'🐺 Fenrir has awakened and connected to Discord!')
         logger.info(f'Bot is in {len(self.guilds)} guilds')
         logger.info(f'Homelab module: {"✅ Enabled" if self.modules_enabled["homelab"] else "❌ Disabled"}')
+        
+        # Force sync commands to all guilds (remove this after first run)
+        for guild in self.guilds:
+            try:
+                synced = await self.tree.sync(guild=guild)
+                logger.info(f"Synced {len(synced)} commands to {guild.name}")
+            except Exception as e:
+                logger.error(f"Failed to sync to {guild.name}: {e}")
+    
+        logger.info("🎉 All commands synced! You can now use /sync_commands for future updates.")
 
     async def make_homelab_request(self, endpoint: str, method: str = 'GET', data: dict = None) -> dict:
         """Make HTTP requests to homelab services through Traefik"""
@@ -68,6 +78,36 @@ class FenrirBot(commands.Bot):
         except Exception as e:
             logger.error(f"Error making homelab request: {e}")
             return {"error": str(e)}
+    
+    
+    async def sync_commands_to_guild(self, guild_id: int = None):
+        """Sync commands to a specific guild or globally"""
+        try:
+            if guild_id:
+                guild = discord.Object(id=guild_id)
+                synced = await self.tree.sync(guild=guild)
+                return f"Synced {len(synced)} commands to guild {guild_id}"
+            else:
+                synced = await self.tree.sync()
+                return f"Synced {len(synced)} commands globally"
+        except Exception as e:
+            return f"Failed to sync: {str(e)}"
+    
+    async def clear_commands_from_guild(self, guild_id: int = None):
+        """Clear all commands from a guild or globally"""
+        try:
+            if guild_id:
+                guild = discord.Object(id=guild_id)
+                self.tree.clear_commands(guild=guild)
+                await self.tree.sync(guild=guild)
+                return f"Cleared commands from guild {guild_id}"
+            else:
+                self.tree.clear_commands(guild=None)
+                await self.tree.sync()
+                return "Cleared global commands"
+        except Exception as e:
+            return f"Failed to clear commands: {str(e)}"
+        
 
 # Initialize bot
 bot = FenrirBot()
@@ -267,6 +307,166 @@ async def system_info(interaction: discord.Interaction):
             color=discord.Color.red()
         )
         await interaction.followup.send(embed=embed)
+
+@bot.tree.command(name="sync_commands", description="Sync slash commands (Admin only)")
+@app_commands.describe(
+    scope="Where to sync commands: 'global', 'guild', or 'clear_global', 'clear_guild'"
+)
+async def sync_commands(interaction: discord.Interaction, scope: str = "guild"):
+    """Sync slash commands - useful for updating command list"""
+    
+    # Check if user has administrator permissions
+    if not interaction.user.guild_permissions.administrator:
+        await interaction.response.send_message("❌ You need administrator permissions to use this command.", ephemeral=True)
+        return
+    
+    await interaction.response.defer(ephemeral=True)
+    
+    try:
+        if scope.lower() == "global":
+            result = await bot.sync_commands_to_guild(None)
+            embed = discord.Embed(
+                title="🌍 Global Command Sync",
+                description=result,
+                color=discord.Color.green()
+            )
+            embed.add_field(
+                name="Note", 
+                value="Global commands may take up to 1 hour to update across all servers.", 
+                inline=False
+            )
+            
+        elif scope.lower() == "guild":
+            guild_id = interaction.guild_id
+            result = await bot.sync_commands_to_guild(guild_id)
+            embed = discord.Embed(
+                title="🏠 Guild Command Sync",
+                description=result,
+                color=discord.Color.blue()
+            )
+            embed.add_field(
+                name="Note", 
+                value="Guild commands update immediately in this server.", 
+                inline=False
+            )
+            
+        elif scope.lower() == "clear_global":
+            result = await bot.clear_commands_from_guild(None)
+            embed = discord.Embed(
+                title="🗑️ Global Commands Cleared",
+                description=result,
+                color=discord.Color.orange()
+            )
+            embed.add_field(
+                name="Warning", 
+                value="All global commands have been removed. Use 'global' scope to re-add them.", 
+                inline=False
+            )
+            
+        elif scope.lower() == "clear_guild":
+            guild_id = interaction.guild_id
+            result = await bot.clear_commands_from_guild(guild_id)
+            embed = discord.Embed(
+                title="🗑️ Guild Commands Cleared",
+                description=result,
+                color=discord.Color.orange()
+            )
+            embed.add_field(
+                name="Warning", 
+                value="All guild commands have been removed. Use 'guild' scope to re-add them.", 
+                inline=False
+            )
+            
+        else:
+            embed = discord.Embed(
+                title="❌ Invalid Scope",
+                description="Valid options: `global`, `guild`, `clear_global`, `clear_guild`",
+                color=discord.Color.red()
+            )
+        
+        await interaction.followup.send(embed=embed)
+        
+    except Exception as e:
+        embed = discord.Embed(
+            title="❌ Command Sync Error",
+            description=f"An error occurred: {str(e)}",
+            color=discord.Color.red()
+        )
+        await interaction.followup.send(embed=embed)
+
+@bot.tree.command(name="list_commands", description="List all registered slash commands")
+async def list_commands(interaction: discord.Interaction):
+    """List all currently registered slash commands"""
+    
+    embed = discord.Embed(
+        title="📝 Registered Slash Commands",
+        color=discord.Color.purple()
+    )
+    
+    # Get guild commands
+    guild_commands = bot.tree.get_commands(guild=interaction.guild)
+    if guild_commands:
+        guild_cmd_list = [f"• `/{cmd.name}` - {cmd.description}" for cmd in guild_commands]
+        embed.add_field(
+            name=f"🏠 Guild Commands ({len(guild_commands)})",
+            value="\n".join(guild_cmd_list) if guild_cmd_list else "None",
+            inline=False
+        )
+    
+    # Get global commands
+    global_commands = bot.tree.get_commands(guild=None)
+    if global_commands:
+        global_cmd_list = [f"• `/{cmd.name}` - {cmd.description}" for cmd in global_commands]
+        embed.add_field(
+            name=f"🌍 Global Commands ({len(global_commands)})",
+            value="\n".join(global_cmd_list) if global_cmd_list else "None",
+            inline=False
+        )
+    
+    if not guild_commands and not global_commands:
+        embed.description = "No commands are currently registered."
+    
+    embed.add_field(
+        name="💡 Tip",
+        value="Use `/sync_commands` to update the command list if you see outdated commands.",
+        inline=False
+    )
+    
+    await interaction.response.send_message(embed=embed, ephemeral=True)
+
+@bot.tree.command(name="bot_info", description="Get detailed information about Fenrir")
+async def bot_info(interaction: discord.Interaction):
+    """Get detailed bot information"""
+    embed = discord.Embed(
+        title="🐺 Fenrir Bot Information",
+        color=discord.Color.gold()
+    )
+    
+    # Basic info
+    embed.add_field(name="Bot Name", value=bot.user.name, inline=True)
+    embed.add_field(name="Bot ID", value=bot.user.id, inline=True)
+    embed.add_field(name="Latency", value=f"{round(bot.latency * 1000)}ms", inline=True)
+    
+    # Server info
+    embed.add_field(name="Guilds", value=len(bot.guilds), inline=True)
+    embed.add_field(name="Users", value=len(bot.users), inline=True)
+    embed.add_field(name="Commands", value=len(bot.tree.get_commands()), inline=True)
+    
+    # Module status
+    modules_status = []
+    for module, enabled in bot.modules_enabled.items():
+        status_emoji = "🟢" if enabled else "🔴"
+        modules_status.append(f"{status_emoji} {module.title()}")
+    
+    embed.add_field(name="Modules", value="\n".join(modules_status), inline=False)
+    
+    # Add bot avatar
+    if bot.user.avatar:
+        embed.set_thumbnail(url=bot.user.avatar.url)
+    
+    embed.set_footer(text=f"Discord.py version: {discord.__version__}")
+    
+    await interaction.response.send_message(embed=embed)
 
 # Error handling
 @bot.tree.error
