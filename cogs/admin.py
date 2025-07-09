@@ -1,6 +1,6 @@
 """
-Admin Commands Cog
-Commands for bot administration and management
+Admin Commands Cog - ULTRA FIXED VERSION
+No double response issues, immediate acknowledgment
 """
 
 import discord
@@ -18,142 +18,129 @@ class AdminCommands(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
     
-    async def sync_commands_to_guild(self, guild_id: int = None):
-        """Sync commands to a specific guild or globally"""
-        try:
-            if guild_id:
-                guild = discord.Object(id=guild_id)
-                synced = await self.bot.tree.sync(guild=guild)
-                return f"Synced {len(synced)} commands to guild {guild_id}"
-            else:
-                synced = await self.bot.tree.sync()
-                return f"Synced {len(synced)} commands globally"
-        except Exception as e:
-            return f"Failed to sync: {str(e)}"
-    
-    async def clear_commands_from_guild(self, guild_id: int = None):
-        """Clear all commands from a guild or globally"""
-        try:
-            if guild_id:
-                guild = discord.Object(id=guild_id)
-                self.bot.tree.clear_commands(guild=guild)
-                await self.bot.tree.sync(guild=guild)
-                return f"Cleared commands from guild {guild_id}"
-            else:
-                self.bot.tree.clear_commands(guild=None)
-                await self.bot.tree.sync()
-                return "Cleared global commands"
-        except Exception as e:
-            return f"Failed to clear commands: {str(e)}"
-    
-    @app_commands.command(name="sync_commands", description="Sync slash commands (Admin only)")
-    @app_commands.describe(
-        scope="Where to sync commands: 'global', 'guild', 'clear_global', 'clear_guild'"
-    )
+    @app_commands.command(name="sync_commands", description="Sync slash commands (Admin Only)")
+    @app_commands.describe(scope="Sync scope: global, guild, or clear_guild")
+    @app_commands.choices(scope=[
+        app_commands.Choice(name="Global (slow)", value="global"),
+        app_commands.Choice(name="This Guild (fast)", value="guild"),
+        app_commands.Choice(name="Clear Guild Commands", value="clear_guild")
+    ])
     async def sync_commands(self, interaction: discord.Interaction, scope: str = "guild"):
-        """Sync slash commands - useful for updating command list"""
-        
-        # Check if user has administrator permissions
-        if not interaction.user.guild_permissions.administrator:
-            embed = EmbedBuilder.error(
-                "Permission Denied",
-                "You need administrator permissions to use this command."
-            )
-            await interaction.response.send_message(embed=embed, ephemeral=True)
-            return
-        
-        await interaction.response.defer(ephemeral=True)
+        """Sync slash commands"""
+        # IMMEDIATE response
+        await interaction.response.send_message("🔄 Syncing commands...", ephemeral=True)
         
         try:
-            if scope.lower() == "global":
-                result = await self.sync_commands_to_guild(None)
-                embed = EmbedBuilder.success("Global Command Sync", result)
-                embed.add_field(
-                    name="Note", 
-                    value="Global commands may take up to 1 hour to update across all servers.", 
-                    inline=False
-                )
-                
-            elif scope.lower() == "guild":
-                guild_id = interaction.guild_id
-                result = await self.sync_commands_to_guild(guild_id)
-                embed = EmbedBuilder.success("Guild Command Sync", result)
-                embed.add_field(
-                    name="Note", 
-                    value="Guild commands update immediately in this server.", 
-                    inline=False
-                )
-                
-            elif scope.lower() == "clear_global":
-                result = await self.clear_commands_from_guild(None)
-                embed = EmbedBuilder.warning("Global Commands Cleared", result)
-                embed.add_field(
-                    name="Warning", 
-                    value="All global commands have been removed. Use 'global' scope to re-add them.", 
-                    inline=False
-                )
-                
-            elif scope.lower() == "clear_guild":
-                guild_id = interaction.guild_id
-                result = await self.clear_commands_from_guild(guild_id)
-                embed = EmbedBuilder.warning("Guild Commands Cleared", result)
-                embed.add_field(
-                    name="Warning", 
-                    value="All guild commands have been removed. Use 'guild' scope to re-add them.", 
-                    inline=False
-                )
-                
-            else:
-                embed = EmbedBuilder.error(
-                    "Invalid Scope",
-                    "Valid options: `global`, `guild`, `clear_global`, `clear_guild`"
-                )
+            # Check if user is bot owner or has admin permissions
+            if not await self.is_owner_or_admin(interaction.user):
+                await interaction.edit_original_response(content="❌ You need administrator permissions to sync commands.")
+                return
             
-            await interaction.followup.send(embed=embed)
+            if scope == "global":
+                synced = await self.bot.tree.sync()
+                message = f"✅ Synced {len(synced)} commands globally. May take up to 1 hour to appear."
+            elif scope == "guild":
+                synced = await self.bot.tree.sync(guild=interaction.guild)
+                message = f"✅ Synced {len(synced)} commands for this guild. Should appear immediately."
+            elif scope == "clear_guild":
+                self.bot.tree.clear_commands(guild=interaction.guild)
+                await self.bot.tree.sync(guild=interaction.guild)
+                message = "✅ Cleared all guild-specific commands. Global commands remain."
+            
+            await interaction.edit_original_response(content=message)
             
         except Exception as e:
-            embed = EmbedBuilder.error("Command Sync Error", f"An error occurred: {str(e)}")
-            await interaction.followup.send(embed=embed)
+            logger.error(f"Error in sync_commands: {e}")
+            await interaction.edit_original_response(content=f"❌ Sync failed: {str(e)}")
     
-    @app_commands.command(name="list_commands", description="List all registered slash commands")
+    @app_commands.command(name="list_commands", description="List all available commands")
     async def list_commands(self, interaction: discord.Interaction):
-        """List all currently registered slash commands"""
+        """List all bot commands"""
+        await interaction.response.send_message("📋 Loading command list...", ephemeral=True)
         
-        embed = discord.Embed(
-            title="📝 Registered Slash Commands",
-            color=discord.Color.purple()
-        )
-        
-        # Get guild commands
-        guild_commands = self.bot.tree.get_commands(guild=interaction.guild)
-        if guild_commands:
-            guild_cmd_list = [f"• `/{cmd.name}` - {cmd.description}" for cmd in guild_commands]
-            embed.add_field(
-                name=f"🏠 Guild Commands ({len(guild_commands)})",
-                value="\n".join(guild_cmd_list) if guild_cmd_list else "None",
-                inline=False
+        try:
+            embed = discord.Embed(
+                title="📋 Available Commands",
+                description="All currently loaded commands",
+                color=discord.Color.blue()
             )
+            
+            # Group commands by cog
+            for cog_name, cog in self.bot.cogs.items():
+                commands = [cmd for cmd in cog.get_app_commands()]
+                if commands:
+                    command_names = [f"`/{cmd.name}`" for cmd in commands]
+                    embed.add_field(
+                        name=f"{cog_name} ({len(commands)})",
+                        value=" • ".join(command_names),
+                        inline=False
+                    )
+            
+            # Add global commands count
+            total_commands = len(self.bot.tree.get_commands())
+            embed.set_footer(text=f"Total Commands: {total_commands}")
+            
+            await interaction.edit_original_response(content=None, embed=embed)
+            
+        except Exception as e:
+            logger.error(f"Error in list_commands: {e}")
+            await interaction.edit_original_response(content="❌ Error loading command list")
+    
+    @app_commands.command(name="stats", description="Display detailed bot statistics")
+    async def stats(self, interaction: discord.Interaction):
+        """Display comprehensive bot statistics"""
+        await interaction.response.send_message("📊 Gathering statistics...", ephemeral=True)
         
-        # Get global commands
-        global_commands = self.bot.tree.get_commands(guild=None)
-        if global_commands:
-            global_cmd_list = [f"• `/{cmd.name}` - {cmd.description}" for cmd in global_commands]
-            embed.add_field(
-                name=f"🌍 Global Commands ({len(global_commands)})",
-                value="\n".join(global_cmd_list) if global_cmd_list else "None",
-                inline=False
+        try:
+            embed = discord.Embed(
+                title="📊 Bot Statistics",
+                color=discord.Color.gold()
             )
+            
+            # Basic stats
+            embed.add_field(name="Guilds", value=len(self.bot.guilds), inline=True)
+            embed.add_field(name="Users", value=len(self.bot.users), inline=True)
+            embed.add_field(name="Commands", value=len(self.bot.tree.get_commands()), inline=True)
+            
+            # Loaded cogs
+            embed.add_field(name="Loaded Cogs", value=len(self.bot.cogs), inline=True)
+            embed.add_field(name="Latency", value=f"{round(self.bot.latency * 1000)}ms", inline=True)
+            
+            # Module status
+            enabled_modules = []
+            for module, enabled in self.bot.config.MODULES_ENABLED.items():
+                status_emoji = "🟢" if enabled else "🔴"
+                enabled_modules.append(f"{status_emoji} {module.title()}")
+            
+            if enabled_modules:
+                embed.add_field(name="Modules", value="\n".join(enabled_modules), inline=False)
+            
+            # Cog details
+            cog_info = []
+            for cog_name, cog in self.bot.cogs.items():
+                command_count = len([cmd for cmd in cog.get_app_commands()])
+                cog_info.append(f"• {cog_name}: {command_count} commands")
+            
+            if cog_info:
+                embed.add_field(name="Cog Details", value="\n".join(cog_info), inline=False)
+            
+            await interaction.edit_original_response(content=None, embed=embed)
+            
+        except Exception as e:
+            logger.error(f"Error in bot_stats: {e}")
+            await interaction.edit_original_response(content="❌ Error gathering statistics")
+    
+    async def is_owner_or_admin(self, user: discord.User) -> bool:
+        """Check if user is bot owner or has admin permissions"""
+        # Check if user is bot owner
+        if await self.bot.is_owner(user):
+            return True
         
-        if not guild_commands and not global_commands:
-            embed.description = "No commands are currently registered."
+        # Check if user has admin permissions (for guild-specific commands)
+        if hasattr(user, 'guild_permissions') and user.guild_permissions.administrator:
+            return True
         
-        embed.add_field(
-            name="💡 Tip",
-            value="Use `/sync_commands` to update the command list if you see outdated commands.",
-            inline=False
-        )
-        
-        await interaction.response.send_message(embed=embed, ephemeral=True)
+        return False
 
 async def setup(bot):
     """Setup function for the cog"""

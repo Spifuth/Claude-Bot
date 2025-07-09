@@ -1,0 +1,935 @@
+"""
+Configurable Logging Cog - ENHANCED WITH COMPREHENSIVE ATTACHMENT URL PRESERVATION
+Multi-image support with complete attachment lifecycle tracking and URL preservation
+"""
+
+import discord
+from discord.ext import commands
+from discord import app_commands
+import logging
+from datetime import datetime
+from typing import Optional
+
+from utils.database import (
+    get_guild_config, is_logging_enabled, is_event_enabled,
+    update_guild_config, set_event_enabled, db_manager
+)
+from utils.embeds import EmbedBuilder
+
+logger = logging.getLogger(__name__)
+
+class ConfigurableLogging(commands.Cog):
+    """Configurable event logging for guilds with enhanced attachment URL preservation"""
+
+    def __init__(self, bot):
+        self.bot = bot
+
+        # Available event types
+        self.event_types = {
+            'message_delete': 'Message Deletions',
+            'message_edit': 'Message Edits',
+            'image_send': 'Image/File Uploads',
+            'image_delete': 'Image/File Deletions',
+            'member_join': 'Member Joins',
+            'member_leave': 'Member Leaves',
+            'member_ban': 'Member Bans',
+            'member_unban': 'Member Unbans'
+        }
+
+        # Image file extensions
+        self.image_extensions = {'.png', '.jpg', '.jpeg', '.gif', '.webp', '.bmp', '.svg', '.tiff', '.ico'}
+
+        # Document file extensions
+        self.document_extensions = {'.pdf', '.doc', '.docx', '.txt', '.rtf', '.odt'}
+
+        # Video file extensions
+        self.video_extensions = {'.mp4', '.avi', '.mov', '.wmv', '.flv', '.webm', '.mkv'}
+
+        # Audio file extensions
+        self.audio_extensions = {'.mp3', '.wav', '.flac', '.aac', '.ogg', '.wma'}
+
+    def cog_check(self, ctx):
+        """Check if logging module is enabled"""
+        return self.bot.config.MODULES_ENABLED.get('logging', False)
+
+    def get_file_type_emoji(self, filename: str) -> str:
+        """Get appropriate emoji for file type"""
+        filename_lower = filename.lower()
+
+        if any(filename_lower.endswith(ext) for ext in self.image_extensions):
+            return "🖼️"
+        elif any(filename_lower.endswith(ext) for ext in self.document_extensions):
+            return "📄"
+        elif any(filename_lower.endswith(ext) for ext in self.video_extensions):
+            return "🎥"
+        elif any(filename_lower.endswith(ext) for ext in self.audio_extensions):
+            return "🎵"
+        else:
+            return "📎"
+
+    def is_image_file(self, filename: str) -> bool:
+        """Check if a file is an image based on extension"""
+        return any(filename.lower().endswith(ext) for ext in self.image_extensions)
+
+    async def send_log(self, guild: discord.Guild, event_type: str, embed: discord.Embed):
+        """Send log message to configured channel"""
+        try:
+            config = await get_guild_config(str(guild.id))
+            if not config or not config.get('log_channel_id'):
+                return
+
+            log_channel = guild.get_channel(int(config['log_channel_id']))
+            if not log_channel:
+                logger.warning(f"Log channel not found for guild {guild.id}")
+                return
+
+            # Apply guild-specific styling
+            if config.get('embed_color'):
+                try:
+                    embed.color = discord.Color(int(config['embed_color'].replace('#', ''), 16))
+                except:
+                    pass  # Keep default color if invalid
+
+            # Add timestamp if enabled
+            if config.get('show_timestamps', True):
+                embed.timestamp = datetime.utcnow()
+
+            await log_channel.send(embed=embed)
+
+            logger.info(f"Sent {event_type} log to {log_channel.name} in {guild.name}")
+
+        except Exception as e:
+            logger.error(f"Failed to send log message: {e}")
+
+    async def send_multiple_image_logs(self, message, attachments):
+        """Send multiple embeds for multiple images (when there are many images)"""
+        try:
+            config = await get_guild_config(str(message.guild.id))
+            if not config or not config.get('log_channel_id'):
+                return
+
+            log_channel = message.guild.get_channel(int(config['log_channel_id']))
+            if not log_channel:
+                return
+
+            images = [att for att in attachments if self.is_image_file(att.filename)]
+
+            # Send additional embeds for images 2, 3, 4+ (first is in main embed)
+            for i, attachment in enumerate(images[1:], 2):
+                embed = discord.Embed(
+                    title=f"🖼️ Image {i}/{len(images)} (continued)",
+                    color=discord.Color.blue()
+                )
+
+                embed.set_image(url=attachment.url)
+
+                file_size = f"{attachment.size / 1024:.1f} KB" if attachment.size < 1024*1024 else f"{attachment.size / (1024*1024):.1f} MB"
+                embed.add_field(
+                    name="File Info",
+                    value=f"**{attachment.filename}** ({file_size})",
+                    inline=False
+                )
+
+                embed.add_field(
+                    name="Direct Link",
+                    value=f"[Open Image]({attachment.url})",
+                    inline=True
+                )
+
+                # Apply guild styling
+                if config.get('embed_color'):
+                    try:
+                        embed.color = discord.Color(int(config['embed_color'].replace('#', ''), 16))
+                    except:
+                        pass
+
+                if config.get('show_timestamps', True):
+                    embed.timestamp = datetime.utcnow()
+
+                await log_channel.send(embed=embed)
+
+        except Exception as e:
+            logger.error(f"Failed to send additional image logs: {e}")
+
+    # ==================== ENHANCED EVENT LISTENERS WITH ATTACHMENT URL PRESERVATION ====================
+
+    @commands.Cog.listener()
+    async def on_message(self, message):
+        """Log messages with images/attachments - ENHANCED with URL preservation and comprehensive metadata capture"""
+        # Skip bot messages
+        if message.author.bot:
+            return
+
+        # Skip if no guild (DMs, etc.)
+        if not message.guild:
+            return
+
+        # Skip if no attachments
+        if not message.attachments:
+            return
+
+        # Import enhanced attachment logging
+        try:
+            from utils.enhanced_attachment_logging import enhanced_on_message_send_logging, debug_message_attachments
+
+            # DEBUG: Full attachment analysis when files are uploaded
+            debug_message_attachments(message, "upload")
+
+            # Capture and preserve attachment data while URLs are accessible
+            preserved_data = enhanced_on_message_send_logging(message)
+        except ImportError:
+            logger.warning("Enhanced attachment logging not available")
+
+        logger.info(f"📤 Message with {len(message.attachments)} attachments uploaded")
+        logger.info(f"   Message ID: {message.id}")
+        logger.info(f"   Author: {message.author} ({message.author.id})")
+
+        # Log all attachment URLs for monitoring
+        for i, attachment in enumerate(message.attachments):
+            logger.info(f"   📎 Attachment {i+1}: {attachment.filename}")
+            logger.info(f"      🔗 Live URL: {attachment.url}")
+            logger.info(f"      📏 Size: {attachment.size} bytes")
+            logger.info(f"      🆔 ID: {attachment.id}")
+
+        guild_id = str(message.guild.id)
+
+        if not await is_logging_enabled(guild_id):
+            return
+
+        if not await is_event_enabled(guild_id, 'image_send'):
+            return
+
+        logger.info(f"📤 Processing file upload in {message.guild.name}")
+
+        # Separate images from other files
+        images = [att for att in message.attachments if self.is_image_file(att.filename)]
+        other_files = [att for att in message.attachments if not self.is_image_file(att.filename)]
+
+        # Determine title based on content
+        if images and other_files:
+            title = f"📎 Files & Images Uploaded ({len(message.attachments)} total)"
+        elif images:
+            title = f"🖼️ Image{'s' if len(images) > 1 else ''} Uploaded ({len(images)} image{'s' if len(images) > 1 else ''})"
+        else:
+            title = f"📎 File{'s' if len(other_files) > 1 else ''} Uploaded ({len(other_files)} file{'s' if len(other_files) > 1 else ''})"
+
+        # Create main embed
+        embed = discord.Embed(
+            title=title,
+            color=discord.Color.blue()
+        )
+
+        embed.add_field(
+            name="Author",
+            value=f"{message.author.mention} ({message.author})",
+            inline=True
+        )
+
+        embed.add_field(
+            name="Channel",
+            value=message.channel.mention,
+            inline=True
+        )
+
+        embed.add_field(
+            name="Message ID",
+            value=str(message.id),
+            inline=True
+        )
+
+        # Add message content if any
+        if message.content:
+            content = message.content[:500] + "..." if len(message.content) > 500 else message.content
+            embed.add_field(
+                name="Message Content",
+                value=f"```{content}```",
+                inline=False
+            )
+
+        # Set first image as main embed image
+        if images:
+            embed.set_image(url=images[0].url)
+
+        # Process ALL attachments for listing with enhanced metadata
+        attachments_info = []
+        image_links = []
+        live_urls = []
+        total_size = 0
+
+        for i, attachment in enumerate(message.attachments):
+            emoji = self.get_file_type_emoji(attachment.filename)
+            file_size = f"{attachment.size / 1024:.1f} KB" if attachment.size < 1024*1024 else f"{attachment.size / (1024*1024):.1f} MB"
+            total_size += attachment.size
+
+            # Enhanced attachment info with technical details
+            content_type = getattr(attachment, 'content_type', 'Unknown')
+            dimensions = ""
+            if hasattr(attachment, 'width') and attachment.width:
+                dimensions = f" • {attachment.width}x{attachment.height}"
+
+            # Add to main list with enhanced info
+            attachments_info.append(f"{emoji} **{attachment.filename}** ({file_size} • {content_type}{dimensions})")
+
+            # Store live URL data
+            live_urls.append({
+                'filename': attachment.filename,
+                'url': attachment.url,
+                'id': attachment.id,
+                'size': attachment.size,
+                'captured_at': datetime.utcnow().isoformat()
+            })
+
+            # If it's an image, add to clickable links
+            if self.is_image_file(attachment.filename):
+                image_links.append(f"[{attachment.filename}]({attachment.url})")
+
+            # Limit display to avoid embed limits
+            if i >= 9:
+                attachments_info.append(f"... and {len(message.attachments) - 10} more files")
+                break
+
+        # Add enhanced attachments list
+        embed.add_field(
+            name=f"📎 All Files ({len(message.attachments)}) - Total: {total_size/(1024*1024):.2f} MB",
+            value="\n".join(attachments_info),
+            inline=False
+        )
+
+        # Add clickable image links if there are multiple images
+        if len(images) > 1:
+            embed.add_field(
+                name=f"🖼️ View All Images ({len(images)})",
+                value=" • ".join(image_links),
+                inline=False
+            )
+
+        # Add live URL preservation info for admin reference
+        if len(live_urls) <= 3:  # Only show for small numbers
+            url_info = []
+            for url_data in live_urls:
+                url_info.append(f"• [{url_data['filename']}]({url_data['url']}) (ID: {url_data['id']})")
+
+            embed.add_field(
+                name="🔗 Live URLs (Accessible)",
+                value="\n".join(url_info),
+                inline=False
+            )
+
+        # Add technical metadata
+        embed.add_field(
+            name="📊 Upload Metadata",
+            value=f"**Images:** {len(images)} files\n"
+                  f"**Other Files:** {len(other_files)} files\n"
+                  f"**Total Size:** {total_size/(1024*1024):.2f} MB\n"
+                  f"**Uploaded:** <t:{int(message.created_at.timestamp())}:F>\n"
+                  f"**URLs Captured:** {len(live_urls)}/{len(message.attachments)}",
+            inline=True
+        )
+
+        # Add jump link
+        embed.add_field(
+            name="Jump to Message",
+            value=f"[Click here]({message.jump_url})",
+            inline=True
+        )
+
+        # Add avatar if enabled
+        config = await get_guild_config(guild_id)
+        if config and config.get('show_avatars', True) and message.author.avatar:
+            embed.set_thumbnail(url=message.author.avatar.url)
+
+        # Log live URLs for monitoring/debugging
+        logger.info(f"📊 CAPTURED LIVE URLS for message {message.id}:")
+        for url_data in live_urls:
+            logger.info(f"   📎 {url_data['filename']}: {url_data['url']}")
+
+        # Send main embed
+        await self.send_log(message.guild, 'image_send', embed)
+
+        # If there are multiple images (more than 3), send additional embeds
+        if len(images) > 3:
+            await self.send_multiple_image_logs(message, message.attachments)
+
+    @commands.Cog.listener()
+    async def on_message_delete(self, message):
+        """Log message deletions - ENHANCED with URL preservation and comprehensive attachment logging"""
+        # Skip bot messages
+        if message.author.bot:
+            return
+
+        # Skip if no guild (DMs, etc.)
+        if not message.guild:
+            return
+
+        # Import enhanced attachment logging
+        try:
+            from utils.enhanced_attachment_logging import enhanced_on_message_delete_logging, debug_message_attachments
+
+            # DEBUG: Full attachment debugging when message has attachments
+            if message.attachments:
+                debug_message_attachments(message, "delete")
+                # Preserve attachment data before it becomes inaccessible
+                preserved_data = enhanced_on_message_delete_logging(message)
+        except ImportError:
+            logger.warning("Enhanced attachment logging not available")
+
+        guild_id = str(message.guild.id)
+
+        if not await is_logging_enabled(guild_id):
+            return
+
+        # Check which type of delete logging to use
+        has_attachments = bool(message.attachments)
+
+        if has_attachments:
+            # Check if image delete logging is enabled
+            if not await is_event_enabled(guild_id, 'image_delete'):
+                return
+
+            logger.info(f"🗑️ Processing deletion of message with {len(message.attachments)} attachments")
+
+            # Preserve ALL attachment URLs and metadata BEFORE they become inaccessible
+            preserved_attachments = []
+            for attachment in message.attachments:
+                preserved_data = {
+                    'filename': attachment.filename,
+                    'size': attachment.size,
+                    'url': attachment.url,  # The URL you found!
+                    'proxy_url': attachment.proxy_url,
+                    'id': attachment.id,
+                    'content_type': getattr(attachment, 'content_type', None),
+                    'width': getattr(attachment, 'width', None),
+                    'height': getattr(attachment, 'height', None),
+                    'is_spoiler': attachment.is_spoiler(),
+                    'preserved_at': datetime.utcnow().isoformat()
+                }
+                preserved_attachments.append(preserved_data)
+
+                # Log each URL for debugging
+                logger.info(f"📎 PRESERVING: {attachment.filename}")
+                logger.info(f"   🔗 URL: {attachment.url}")
+                logger.info(f"   📏 Size: {attachment.size} bytes")
+
+            # Separate images from other files
+            images = [att for att in message.attachments if self.is_image_file(att.filename)]
+            other_files = [att for att in message.attachments if not self.is_image_file(att.filename)]
+
+            # Determine title
+            if images and other_files:
+                title = f"🗑️ Files & Images Deleted ({len(message.attachments)} total)"
+            elif images:
+                title = f"🗑️ Image{'s' if len(images) > 1 else ''} Deleted ({len(images)} image{'s' if len(images) > 1 else ''})"
+            else:
+                title = f"🗑️ File{'s' if len(other_files) > 1 else ''} Deleted ({len(other_files)} file{'s' if len(other_files) > 1 else ''})"
+
+            embed = discord.Embed(
+                title=title,
+                color=discord.Color.red()
+            )
+        else:
+            # Check if regular message delete logging is enabled
+            if not await is_event_enabled(guild_id, 'message_delete'):
+                return
+
+            logger.info(f"🗑️ Processing deletion of text message (no attachments)")
+
+            embed = discord.Embed(
+                title="🗑️ Message Deleted",
+                color=discord.Color.red()
+            )
+
+        embed.add_field(
+            name="Author",
+            value=f"{message.author.mention} ({message.author})",
+            inline=True
+        )
+
+        embed.add_field(
+            name="Channel",
+            value=message.channel.mention,
+            inline=True
+        )
+
+        embed.add_field(
+            name="Message ID",
+            value=str(message.id),
+            inline=True
+        )
+
+        # Add message content if any
+        if message.content:
+            content = message.content[:1000] + "..." if len(message.content) > 1000 else message.content
+            embed.add_field(
+                name="Content",
+                value=f"```{content}```",
+                inline=False
+            )
+
+        # Process attachments if any
+        if message.attachments:
+            attachments_info = []
+            preserved_urls = []
+
+            for i, attachment in enumerate(message.attachments):
+                emoji = self.get_file_type_emoji(attachment.filename)
+                file_size = f"{attachment.size / 1024:.1f} KB" if attachment.size < 1024*1024 else f"{attachment.size / (1024*1024):.1f} MB"
+
+                # Create attachment info with preserved data
+                if hasattr(attachment, 'content_type') and attachment.content_type:
+                    type_info = f" • {attachment.content_type}"
+                else:
+                    type_info = ""
+
+                attachments_info.append(f"{emoji} **{attachment.filename}** ({file_size}){type_info}")
+
+                # Store the URL that was preserved (even though it will become inaccessible)
+                preserved_urls.append({
+                    'filename': attachment.filename,
+                    'url': attachment.url,
+                    'size': attachment.size,
+                    'id': attachment.id
+                })
+
+                # Log the URL for debugging/monitoring
+                logger.info(f"📎 Deleted attachment URL: {attachment.url}")
+
+                # Limit to avoid embed limits
+                if i >= 9:
+                    attachments_info.append(f"... and {len(message.attachments) - 10} more files")
+                    break
+
+            embed.add_field(
+                name=f"Deleted Attachments ({len(message.attachments)})",
+                value="\n".join(attachments_info),
+                inline=False
+            )
+
+            # Add preserved URLs for admin reference (though they won't work)
+            if len(preserved_urls) <= 3:  # Only show URLs for small numbers to avoid spam
+                url_list = []
+                for url_data in preserved_urls:
+                    url_list.append(f"• [{url_data['filename']}]({url_data['url']}) (ID: {url_data['id']})")
+
+                embed.add_field(
+                    name="🔗 Preserved URLs (Now Inaccessible)",
+                    value="\n".join(url_list),
+                    inline=False
+                )
+
+            # Enhanced note about deleted files with technical details
+            embed.add_field(
+                name="⚠️ Technical Information",
+                value="**Discord CDN Behavior:**\n"
+                      f"• {len(preserved_urls)} file URL(s) were captured before deletion\n"
+                      "• URLs become HTTP 404 immediately upon message deletion\n"
+                      "• Files are removed from Discord's CDN permanently\n"
+                      "• Only metadata (filename, size, type) is preserved\n"
+                      f"• Total deleted content: {sum(url['size'] for url in preserved_urls) / (1024*1024):.2f} MB",
+                inline=False
+            )
+
+            # Add deletion timestamp with precise timing
+            embed.add_field(
+                name="🕒 Deletion Details",
+                value=f"**When:** <t:{int(datetime.utcnow().timestamp())}:F>\n"
+                      f"**Detected:** {datetime.utcnow().strftime('%H:%M:%S.%f')[:-3]} UTC\n"
+                      f"**URLs Preserved:** {len(preserved_urls)}/{len(message.attachments)}",
+                inline=True
+            )
+
+            # Store preserved data in logs for potential recovery/analysis
+            logger.info(f"🔍 PRESERVED ATTACHMENT DATA for message {message.id}:")
+            for url_data in preserved_urls:
+                logger.info(f"   📎 {url_data['filename']}: {url_data['url']}")
+
+            # Log to attachment logger if available
+            try:
+                from utils.enhanced_attachment_logging import log_attachments
+                log_attachments(message, "deleted")
+            except ImportError:
+                pass
+
+        # Add avatar if enabled
+        config = await get_guild_config(guild_id)
+        if config and config.get('show_avatars', True) and message.author.avatar:
+            embed.set_thumbnail(url=message.author.avatar.url)
+
+        # Send to appropriate event type
+        event_type = 'image_delete' if has_attachments else 'message_delete'
+        await self.send_log(message.guild, event_type, embed)
+
+    @commands.Cog.listener()
+    async def on_message_edit(self, before, after):
+        """Log message edits"""
+        # Skip bot messages
+        if before.author.bot:
+            return
+
+        # Skip if no guild (DMs, interaction responses, etc.)
+        if not before.guild:
+            return
+
+        # Skip if content didn't actually change
+        if before.content == after.content:
+            return
+
+        guild_id = str(before.guild.id)
+
+        if not await is_logging_enabled(guild_id):
+            return
+
+        if not await is_event_enabled(guild_id, 'message_edit'):
+            return
+
+        embed = discord.Embed(
+            title="📝 Message Edited",
+            color=discord.Color.orange()
+        )
+
+        embed.add_field(
+            name="Author",
+            value=f"{before.author.mention} ({before.author})",
+            inline=True
+        )
+
+        embed.add_field(
+            name="Channel",
+            value=before.channel.mention,
+            inline=True
+        )
+
+        embed.add_field(
+            name="Jump to Message",
+            value=f"[Click here]({after.jump_url})",
+            inline=True
+        )
+
+        # Before content
+        if before.content:
+            before_content = before.content[:500] + "..." if len(before.content) > 500 else before.content
+            embed.add_field(
+                name="Before",
+                value=f"```{before_content}```",
+                inline=False
+            )
+        else:
+            embed.add_field(
+                name="Before",
+                value="*(No text content)*",
+                inline=False
+            )
+
+        # After content
+        if after.content:
+            after_content = after.content[:500] + "..." if len(after.content) > 500 else after.content
+            embed.add_field(
+                name="After",
+                value=f"```{after_content}```",
+                inline=False
+            )
+        else:
+            embed.add_field(
+                name="After",
+                value="*(No text content)*",
+                inline=False
+            )
+
+        config = await get_guild_config(guild_id)
+        if config and config.get('show_avatars', True) and before.author.avatar:
+            embed.set_thumbnail(url=before.author.avatar.url)
+
+        await self.send_log(before.guild, 'message_edit', embed)
+
+    @commands.Cog.listener()
+    async def on_member_join(self, member):
+        """Log member joins"""
+        if not await is_logging_enabled(str(member.guild.id)):
+            return
+
+        if not await is_event_enabled(str(member.guild.id), 'member_join'):
+            return
+
+        embed = discord.Embed(
+            title="👋 Member Joined",
+            color=discord.Color.green()
+        )
+
+        embed.add_field(
+            name="Member",
+            value=f"{member.mention} ({member})",
+            inline=True
+        )
+
+        embed.add_field(
+            name="Account Created",
+            value=f"<t:{int(member.created_at.timestamp())}:R>",
+            inline=True
+        )
+
+        embed.add_field(
+            name="Member Count",
+            value=str(member.guild.member_count),
+            inline=True
+        )
+
+        config = await get_guild_config(str(member.guild.id))
+        if config and config.get('show_avatars', True) and member.avatar:
+            embed.set_thumbnail(url=member.avatar.url)
+
+        await self.send_log(member.guild, 'member_join', embed)
+
+    @commands.Cog.listener()
+    async def on_member_remove(self, member):
+        """Log member leaves"""
+        if not await is_logging_enabled(str(member.guild.id)):
+            return
+
+        if not await is_event_enabled(str(member.guild.id), 'member_leave'):
+            return
+
+        embed = discord.Embed(
+            title="👋 Member Left",
+            color=discord.Color.red()
+        )
+
+        embed.add_field(
+            name="Member",
+            value=f"{member} (ID: {member.id})",
+            inline=True
+        )
+
+        embed.add_field(
+            name="Joined",
+            value=f"<t:{int(member.joined_at.timestamp())}:R>" if member.joined_at else "Unknown",
+            inline=True
+        )
+
+        embed.add_field(
+            name="Member Count",
+            value=str(member.guild.member_count),
+            inline=True
+        )
+
+        config = await get_guild_config(str(member.guild.id))
+        if config and config.get('show_avatars', True) and member.avatar:
+            embed.set_thumbnail(url=member.avatar.url)
+
+        await self.send_log(member.guild, 'member_leave', embed)
+
+    @commands.Cog.listener()
+    async def on_member_ban(self, guild, user):
+        """Log member bans"""
+        if not await is_logging_enabled(str(guild.id)):
+            return
+
+        if not await is_event_enabled(str(guild.id), 'member_ban'):
+            return
+
+        embed = discord.Embed(
+            title="🔨 Member Banned",
+            color=discord.Color.dark_red()
+        )
+
+        embed.add_field(
+            name="Member",
+            value=f"{user} (ID: {user.id})",
+            inline=True
+        )
+
+        config = await get_guild_config(str(guild.id))
+        if config and config.get('show_avatars', True) and user.avatar:
+            embed.set_thumbnail(url=user.avatar.url)
+
+        await self.send_log(guild, 'member_ban', embed)
+
+    @commands.Cog.listener()
+    async def on_member_unban(self, guild, user):
+        """Log member unbans"""
+        if not await is_logging_enabled(str(guild.id)):
+            return
+
+        if not await is_event_enabled(str(guild.id), 'member_unban'):
+            return
+
+        embed = discord.Embed(
+            title="🔓 Member Unbanned",
+            color=discord.Color.green()
+        )
+
+        embed.add_field(
+            name="Member",
+            value=f"{user} (ID: {user.id})",
+            inline=True
+        )
+
+        config = await get_guild_config(str(guild.id))
+        if config and config.get('show_avatars', True) and user.avatar:
+            embed.set_thumbnail(url=user.avatar.url)
+
+        await self.send_log(guild, 'member_unban', embed)
+
+    # ==================== ADMIN COMMANDS ====================
+
+    @app_commands.command(name="log_config", description="Configure logging for this server (Admin only)")
+    @app_commands.describe(
+        channel="Channel to send logs to",
+        enabled="Enable or disable logging"
+    )
+    async def log_config(
+        self,
+        interaction: discord.Interaction,
+        channel: Optional[discord.TextChannel] = None,
+        enabled: Optional[bool] = None
+    ):
+        """Configure logging settings for the guild"""
+        await interaction.response.send_message("⚙️ Configuring logging settings...", ephemeral=True)
+
+        try:
+            if not interaction.user.guild_permissions.administrator:
+                await interaction.edit_original_response(content="❌ You need administrator permissions to configure logging.")
+                return
+
+            if not self.bot.config.MODULES_ENABLED.get('logging', False):
+                await interaction.edit_original_response(content="❌ The logging module is not enabled on this bot.")
+                return
+
+            guild_id = str(interaction.guild.id)
+            config = await get_guild_config(guild_id) or {}
+
+            # Update configuration
+            if channel is not None:
+                config['log_channel_id'] = str(channel.id)
+            if enabled is not None:
+                config['logging_enabled'] = enabled
+
+            config['guild_name'] = interaction.guild.name
+
+            # Save to database
+            await update_guild_config(guild_id, config)
+
+            # Create response
+            response_lines = ["✅ Logging configuration updated!"]
+
+            if config.get('log_channel_id'):
+                log_channel = interaction.guild.get_channel(int(config['log_channel_id']))
+                response_lines.append(f"📍 Log Channel: {log_channel.mention if log_channel else 'Not found'}")
+
+            response_lines.append(f"🔄 Logging: {'Enabled' if config.get('logging_enabled', False) else 'Disabled'}")
+            response_lines.append("💡 Use `/log_events` to enable specific events!")
+            response_lines.append("🔧 Enhanced attachment URL preservation is now active!")
+
+            await interaction.edit_original_response(content="\n".join(response_lines))
+
+        except Exception as e:
+            logger.error(f"Error in log_config: {e}")
+            await interaction.edit_original_response(content="❌ Error configuring logging settings")
+
+    @app_commands.command(name="log_events", description="Configure which events to log (Admin only)")
+    @app_commands.describe(
+        event="Event type to configure",
+        enabled="Enable or disable this event"
+    )
+    @app_commands.choices(event=[
+        app_commands.Choice(name="Message Deletions", value="message_delete"),
+        app_commands.Choice(name="Message Edits", value="message_edit"),
+        app_commands.Choice(name="Image/File Uploads", value="image_send"),
+        app_commands.Choice(name="Image/File Deletions", value="image_delete"),
+        app_commands.Choice(name="Member Joins", value="member_join"),
+        app_commands.Choice(name="Member Leaves", value="member_leave"),
+        app_commands.Choice(name="Member Bans", value="member_ban"),
+        app_commands.Choice(name="Member Unbans", value="member_unban"),
+    ])
+    async def log_events(
+        self,
+        interaction: discord.Interaction,
+        event: str,
+        enabled: bool
+    ):
+        """Configure which events to log"""
+        await interaction.response.send_message("⚙️ Configuring event logging...", ephemeral=True)
+
+        try:
+            if not interaction.user.guild_permissions.administrator:
+                await interaction.edit_original_response(content="❌ You need administrator permissions to configure logging.")
+                return
+
+            guild_id = str(interaction.guild.id)
+
+            # Check if logging is enabled
+            if not await is_logging_enabled(guild_id):
+                await interaction.edit_original_response(content="❌ Please use `/log_config` to enable logging first!")
+                return
+
+            # Update event configuration
+            await set_event_enabled(guild_id, event, enabled)
+
+            event_name = self.event_types.get(event, event)
+            action = "enabled" if enabled else "disabled"
+
+            # Special message for attachment events
+            if event in ['image_send', 'image_delete'] and enabled:
+                await interaction.edit_original_response(
+                    content=f"✅ {event_name} has been {action}.\n"
+                            f"🔧 **Enhanced Features Active:**\n"
+                            f"• Complete attachment URL preservation\n"
+                            f"• File metadata capture (size, type, dimensions)\n"
+                            f"• Technical deletion details\n"
+                            f"• Debug-friendly logging"
+                )
+            else:
+                await interaction.edit_original_response(content=f"✅ {event_name} has been {action}.")
+
+        except Exception as e:
+            logger.error(f"Error in log_events: {e}")
+            await interaction.edit_original_response(content="❌ Error configuring event logging")
+
+    @app_commands.command(name="log_status", description="View current logging configuration")
+    async def log_status(self, interaction: discord.Interaction):
+        """View current logging configuration"""
+        await interaction.response.send_message("📊 Getting logging status...", ephemeral=True)
+
+        try:
+            guild_id = str(interaction.guild.id)
+            config = await get_guild_config(guild_id)
+
+            if not config:
+                await interaction.edit_original_response(content="❌ Logging has not been configured for this server.\nUse `/log_config` to get started!")
+                return
+
+            status_lines = ["📊 **Enhanced Logging Status**"]
+
+            # Basic config
+            status_lines.append(f"🔄 Logging: {'Enabled' if config.get('logging_enabled', False) else 'Disabled'}")
+
+            if config.get('log_channel_id'):
+                log_channel = interaction.guild.get_channel(int(config['log_channel_id']))
+                status_lines.append(f"📍 Log Channel: {log_channel.mention if log_channel else 'Channel not found'}")
+
+            # Show enhanced features
+            status_lines.append("🔧 **Enhanced Features:**")
+            status_lines.append("• ✅ Attachment URL preservation")
+            status_lines.append("• ✅ Complete file metadata capture")
+            status_lines.append("• ✅ Technical deletion tracking")
+            status_lines.append("• ✅ Debug-friendly output")
+
+            # Show enabled events if logging is on
+            if config.get('logging_enabled', False) and db_manager:
+                enabled_events = await db_manager.get_all_enabled_events(guild_id)
+                if enabled_events:
+                    event_names = [self.event_types.get(event, event) for event in enabled_events]
+                    status_lines.append(f"📝 **Enabled Events:**")
+                    for name in event_names:
+                        status_lines.append(f"• {name}")
+                else:
+                    status_lines.append("📝 **No events enabled** - use `/log_events` to enable events")
+
+            await interaction.edit_original_response(content="\n".join(status_lines))
+
+        except Exception as e:
+            logger.error(f"Error in log_status: {e}")
+            await interaction.edit_original_response(content="❌ Error getting logging status")
+
+async def setup(bot):
+    """Setup function for the cog"""
+    await bot.add_cog(ConfigurableLogging(bot))
+    logger.info("Enhanced configurable logging cog loaded with comprehensive attachment URL preservation")

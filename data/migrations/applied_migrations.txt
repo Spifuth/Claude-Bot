@@ -1,0 +1,6 @@
+001_core_tables.sql - 2025-07-08 22:53:47
+002_voice_activity.sql - 2025-07-08 22:53:47
+003_analytics.sql - 2025-07-08 22:53:47
+004_user_stats.sql - 2025-07-08 22:53:47
+005_event_channel_mapping.sql - 2025-07-08 22:53:47
+indexes.sql - 2025-07-08 22:53:47
