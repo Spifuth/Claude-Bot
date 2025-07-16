@@ -164,3 +164,4 @@ cython_debug/
 # Discord bot specific
 bot.log
 logs/
+/Discord_Bot/bin/activate.fish
