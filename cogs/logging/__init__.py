@@ -7,6 +7,7 @@ import discord
 from discord.ext import commands
 import logging
 from typing import List, Dict, Any
+import time
 
 # Import all logging modules
 from .message_logs import MessageLogs
@@ -24,6 +25,10 @@ class ConfigurableLogging(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
         self.modules = []
+
+        # FIXED: Proper event loop prevention
+        self._processed_messages = set()
+        self._last_cleanup = time.time()
 
         # Initialize all logging modules
         self.message_logs = MessageLogs(bot)
@@ -79,28 +84,25 @@ class ConfigurableLogging(commands.Cog):
 
     @commands.Cog.listener()
     async def on_message_delete(self, message):
-        """Forward message delete events to appropriate loggers"""
-        # CHANGE: Add loop prevention and better routing logic
-        # Skip if this is a forwarded call to prevent infinite loops
-        self._processed_messages = set()
+        """Forward message delete events with proper loop prevention"""
+        # FIXED: Simple cleanup every 5 minutes
+        current_time = time.time()
+        if current_time - self._last_cleanup > 300:  # 5 minutes
+            self._processed_messages.clear()
+            self._last_cleanup = current_time
+
+        # FIXED: Proper loop prevention
         if message.id in self._processed_messages:
             return
         self._processed_messages.add(message.id)
 
         try:
-            # Route based on message content
             if message.attachments:
-                # Has attachments - route to attachment logger
                 await self.attachment_logs.on_message_delete(message)
             else:
-                # Text only - route to message logger
                 await self.message_logs.on_message_delete(message)
         except Exception as e:
             logger.error(f"Error in message delete forwarding: {e}")
-        finally:
-            # Clean up the forwarding marker
-            if hasattr(message, '_fenrir_forwarded'):
-                delattr(message, '_fenrir_forwarded')
 
     @commands.Cog.listener()
     async def on_message_edit(self, before, after):

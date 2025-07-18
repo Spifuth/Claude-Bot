@@ -173,15 +173,28 @@ class DatabaseManager:
         logger.info("Database initialization completed successfully")
 
     async def get_connection(self):
-        """Get a database connection with basic pooling"""
-        # CHANGE: Add simple connection pooling to reduce overhead
+        """Get a database connection with safe pooling"""
         async with self._pool_lock:
-            thread_id = id(asyncio.current_task())
+            # FIXED: Safe task identification
+            try:
+                task = asyncio.current_task()
+                task_id = f"task_{id(task)}" if task else "default"
+            except:
+                task_id = "fallback"
 
-            if thread_id not in self._connection_pool:
-                self._connection_pool[thread_id] = await aiosqlite.connect(self.db_path)
+            # FIXED: Validate existing connections
+            if task_id in self._connection_pool:
+                conn = self._connection_pool[task_id]
+                try:
+                    await conn.execute("SELECT 1")
+                    return conn
+                except:
+                    # Remove broken connection
+                    del self._connection_pool[task_id]
 
-            return self._connection_pool[thread_id]
+            # Create new connection
+            self._connection_pool[task_id] = await aiosqlite.connect(self.db_path)
+            return self._connection_pool[task_id]
 
     async def close_connections(self):
         """Close all pooled connections"""

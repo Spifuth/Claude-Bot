@@ -7,6 +7,7 @@ import discord
 from discord.ext import commands, tasks
 import logging
 from datetime import datetime, timedelta
+import time
 from typing import Dict, Optional, Any
 
 from .base import LoggingModule
@@ -58,78 +59,53 @@ class VoiceLogs(LoggingModule):
         # End all active sessions
         await self.end_all_sessions("Bot shutdown")
 
-    @tasks.loop(minutes=30)
+    @tasks.loop(minutes=5)  # More frequent cleanup
     async def cleanup_stale_sessions(self):
-        """Enhanced cleanup with better error handling and validation"""
+        """Simple and reliable session cleanup"""
         try:
-            current_time = datetime.utcnow()
-            stale_sessions = []
-            validation_errors = []
+            current_time = time.time()
+            to_remove = []
 
-            # CHANGE: Fix the logic flow so all checks can run
+            # FIXED: Simple validation
             for user_id, session in list(self.active_sessions.items()):
-                should_cleanup = False
-                cleanup_reason = ""
-
                 try:
-                    # Validate session data integrity first
-                    if not isinstance(session, dict) or 'start_time' not in session:
-                        validation_errors.append(f"Invalid session data for user {user_id}")
-                        should_cleanup = True
-                        cleanup_reason = "Invalid session data"
+                    # Remove if session is over 6 hours old
+                    if (current_time - session['start_time'].timestamp()) > 21600:
+                        to_remove.append(user_id)
+                        continue
 
-                    # Check if session is too old (6 hours) - but don't continue yet
-                    elif (current_time - session['start_time']) > timedelta(hours=6):
-                        should_cleanup = True
-                        cleanup_reason = f"Session too old ({current_time - session['start_time']})"
+                    # Remove if member no longer exists or not in voice
+                    member = session.get('member')
+                    if not member or not hasattr(member, 'voice') or not member.voice:
+                        to_remove.append(user_id)
+                        continue
 
-                    # Only check voice status if session isn't already marked for cleanup
-                    elif not should_cleanup:
-                        # Validate member still exists and is in voice
-                        member = session.get('member')
-                        if not member:
-                            should_cleanup = True
-                            cleanup_reason = "Missing member object"
-                        else:
-                            # FIXED: This check can now actually run
-                            try:
-                                if not member.voice or not member.voice.channel:
-                                    should_cleanup = True
-                                    cleanup_reason = "Member no longer in voice"
-                            except AttributeError:
-                                # Member object is stale/invalid
-                                should_cleanup = True
-                                cleanup_reason = "Stale member object"
+                except Exception:
+                    # If any check fails, remove the session
+                    to_remove.append(user_id)
 
-                    # Add to cleanup list if needed
-                    if should_cleanup:
-                        stale_sessions.append((user_id, cleanup_reason))
-
-                except Exception as session_error:
-                    logger.error(f"Error validating session for user {user_id}: {session_error}")
-                    stale_sessions.append((user_id, f"Validation error: {session_error}"))
-
-            # Clean up identified stale sessions
-            cleanup_results = {'success': 0, 'errors': 0}
-            for user_id, reason in stale_sessions:
+            # Clean up identified sessions
+            for user_id in to_remove:
                 try:
-                    await self.end_session(user_id, f"Cleanup: {reason}")
-                    cleanup_results['success'] += 1
-                    logger.debug(f"Cleaned up session for user {user_id}: {reason}")
-                except Exception as cleanup_error:
-                    logger.error(f"Error cleaning up session for user {user_id}: {cleanup_error}")
-                    cleanup_results['errors'] += 1
+                    await self.end_session(user_id, "Cleanup")
+                except Exception as e:
+                    logger.error(f"Error cleaning session {user_id}: {e}")
 
-            # Log cleanup summary
-            if stale_sessions:
-                logger.info(
-                    f"Session cleanup complete: {cleanup_results['success']} cleaned, {cleanup_results['errors']} errors")
+            # Emergency cleanup if too many sessions
+            if len(self.active_sessions) > 500:
+                oldest_sessions = sorted(
+                    self.active_sessions.items(),
+                    key=lambda x: x[1]['start_time']
+                )[:100]  # Remove 100 oldest
 
-            if validation_errors:
-                logger.warning(f"Session validation issues: {len(validation_errors)} problems")
+                for user_id, _ in oldest_sessions:
+                    await self.end_session(user_id, "Emergency cleanup")
+
+            if to_remove:
+                logger.info(f"Cleaned up {len(to_remove)} stale voice sessions")
 
         except Exception as e:
-            logger.error(f"Critical error in cleanup_stale_sessions: {e}")
+            logger.error(f"Error in session cleanup: {e}")
 
     async def on_voice_state_update(self, member, before, after):
         """Handle all voice state changes"""
